@@ -39,6 +39,8 @@ function getRequestMock(fns: IExecuteFunctions): ReturnType<typeof vi.fn> {
     .helpers.httpRequestWithAuthentication;
 }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
 describe("Hindsight node execute()", () => {
   const node = new Hindsight();
 
@@ -66,13 +68,25 @@ describe("Hindsight node execute()", () => {
     expect(req).toHaveBeenCalledWith("hindsightApi", {
       method: "POST",
       url: `${API_URL}/v1/default/banks/bank-1/memories`,
-      body: { items: [{ content: "User prefers dark mode", tags: ["pref", "ui"] }] },
+      body: {
+        items: [
+          {
+            content: "User prefers dark mode",
+            tags: ["pref", "ui"],
+            document_id: expect.any(String),
+          },
+        ],
+      },
       json: true,
     });
-    expect(result[0][0].json).toEqual({ operation_id: "op-1", status: "accepted" });
+    expect(result[0][0].json).toEqual({
+      operation_id: "op-1",
+      status: "accepted",
+      document_id: expect.stringMatching(UUID_RE),
+    });
   });
 
-  it("retain omits tags from item when tags is empty", async () => {
+  it("retain generates a UUID document_id when none is provided and returns it", async () => {
     const mockFns = createMockExecuteFunctions(
       {
         operation: "retain",
@@ -85,14 +99,46 @@ describe("Hindsight node execute()", () => {
       }
     );
 
-    await node.execute.call(mockFns);
+    const result = await node.execute.call(mockFns);
 
     const req = getRequestMock(mockFns);
     expect(req).toHaveBeenCalledWith("hindsightApi", {
       method: "POST",
       url: `${API_URL}/v1/default/banks/bank-1/memories`,
-      body: { items: [{ content: "Hello world" }] },
+      body: { items: [{ content: "Hello world", document_id: expect.stringMatching(UUID_RE) }] },
       json: true,
+    });
+    const body = req.mock.calls[0][1].body as { items: { document_id: string }[] };
+    expect(result[0][0].json.document_id).toBe(body.items[0].document_id);
+  });
+
+  it("retain includes document_id when provided", async () => {
+    const mockFns = createMockExecuteFunctions(
+      {
+        operation: "retain",
+        bankId: "bank-1",
+        content: "Hello world",
+        retainTags: "",
+        retainDocumentId: "doc-1",
+      },
+      {
+        requestImpl: () => ({ operation_id: "op-3", status: "accepted" }),
+      }
+    );
+
+    const result = await node.execute.call(mockFns);
+
+    const req = getRequestMock(mockFns);
+    expect(req).toHaveBeenCalledWith("hindsightApi", {
+      method: "POST",
+      url: `${API_URL}/v1/default/banks/bank-1/memories`,
+      body: { items: [{ content: "Hello world", document_id: "doc-1" }] },
+      json: true,
+    });
+    expect(result[0][0].json).toEqual({
+      operation_id: "op-3",
+      status: "accepted",
+      document_id: "doc-1",
     });
   });
 

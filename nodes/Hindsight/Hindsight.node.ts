@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type {
   IDataObject,
   IExecuteFunctions,
@@ -114,6 +115,19 @@ export class Hindsight implements INodeType {
         default: "",
         description:
           'Comma-separated tags applied to the stored memory (e.g. "user:alex,scope:profile")',
+        displayOptions: {
+          show: {
+            operation: ["retain"],
+          },
+        },
+      },
+      {
+        displayName: "Document ID",
+        name: "retainDocumentId",
+        type: "string",
+        default: "",
+        description:
+          "ID for the document. Retaining again with the same ID replaces its previous content. Leave empty to generate a new UUID, which is returned in the output.",
         displayOptions: {
           show: {
             operation: ["retain"],
@@ -237,11 +251,14 @@ export class Hindsight implements INodeType {
           const tags = parseTags(tagsRaw);
 
           // Retain: POST /v1/default/banks/{bank_id}/memories
-          // Body matches HindsightClient.retain() shape: { items: [{ content, tags? }] }
+          // Body matches HindsightClient.retain() shape: { items: [{ content, tags?, document_id? }] }
           const item: IDataObject = { content };
           if (tags.length) {
             item.tags = tags;
           }
+          const documentId =
+            (this.getNodeParameter("retainDocumentId", i, "") as string) || randomUUID();
+          item.document_id = documentId;
 
           const response = (await this.helpers.httpRequestWithAuthentication.call(
             this,
@@ -253,7 +270,8 @@ export class Hindsight implements INodeType {
               json: true,
             }
           )) as IDataObject;
-          result = response;
+          // The API response does not echo document_id, so surface it here
+          result = { ...response, document_id: documentId };
         } else if (operation === "recall") {
           const query = this.getNodeParameter("recallQuery", i) as string;
           const budget = this.getNodeParameter("recallBudget", i, "mid") as Budget;
